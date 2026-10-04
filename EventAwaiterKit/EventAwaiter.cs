@@ -1,118 +1,81 @@
-﻿using System;
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace EventAwaiterKit
 {
-    /// <summary>
-    /// Pure, stateless helpers to “await” any event or delegate callback, with timeout + cancellation.
-    /// </summary>
+    /// <summary>Waits for one future event, with optional timeout and cancellation.</summary>
     public static class EventAwaiter
     {
-        // —— Action —— //
+        /// <summary>Waits for one event, discarding any event data, or a timeout.</summary>
+        /// <param name="addHandler">Attaches the supplied handler synchronously before this call returns.</param>
+        /// <param name="removeHandler">Detaches the same handler once, including after failed attachment; must tolerate an absent handler.</param>
+        /// <param name="timeout">Exactly Timeout.InfiniteTimeSpan, or zero through Int32.MaxValue milliseconds inclusive. Zero does not subscribe.</param>
+        /// <param name="cancellationToken">Cancels waiting, not the underlying operation. Pre-cancellation prevents subscription.</param>
+        /// <returns>True for an event, or false for timeout, after cleanup finishes.</returns>
+        /// <exception cref="ArgumentNullException">An accessor is null.</exception>
+        /// <exception cref="ArgumentOutOfRangeException">The timeout is outside the supported range.</exception>
+        /// <exception cref="OperationCanceledException">Cancellation wins and cleanup succeeds.</exception>
+        /// <exception cref="AggregateException">Both addition and cleanup fail, with the addition exception first.</exception>
+        /// <remarks>
+        /// The first event/timeout/cancellation signal wins. Addition failure overrides that signal; cleanup failure overrides an ordinary outcome.
+        /// Accessor and context-dispatch errors fault the task, including OperationCanceledException thrown by an accessor.
+        /// Cleanup uses the captured SynchronizationContext when present; keep it alive and await asynchronously.
+        /// Accessors must return promptly. A failed remover or rejected dispatch may leave the handler attached.
+        /// </remarks>
+        public static Task<bool> WaitForEventAsync(Action<Action> addHandler, Action<Action> removeHandler, TimeSpan timeout, CancellationToken cancellationToken = default)
+            => EventWait.WaitAsync(addHandler, removeHandler, signal => () => signal(true), false, timeout, cancellationToken);
 
-        public static async Task<bool> WaitForEventAsync(Action<Action> addHandler, Action<Action> removeHandler, TimeSpan timeout, CancellationToken cancellationToken = default)
-        {
-            if (addHandler == null) 
-                throw new ArgumentNullException(nameof(addHandler));
-            
-            if (removeHandler == null) 
-                throw new ArgumentNullException(nameof(removeHandler));
-            
-            if (timeout < Timeout.InfiniteTimeSpan)
-                throw new ArgumentOutOfRangeException(nameof(timeout), "Timeout must be Timeout.InfiniteTimeSpan or a non-negative TimeSpan.");
-
-            cancellationToken.ThrowIfCancellationRequested();
-
-            using (var timeoutCts = new CancellationTokenSource(timeout))
-            {
-                var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-
-                void handler()
-                {
-                    removeHandler(handler);
-                    tcs.TrySetResult(true);
-                }
-
-                addHandler(handler);
-
-                using (timeoutCts.Token.Register(() =>
-                {
-                    removeHandler(handler);
-                    tcs.TrySetResult(false);
-                }))
-                using (cancellationToken.Register(() =>
-                {
-                    removeHandler(handler);
-                    tcs.TrySetCanceled(cancellationToken);
-                }))
-                {
-                    try
-                    {
-                        return await tcs.Task.ConfigureAwait(false);
-                    }
-                    finally
-                    {
-                        removeHandler(handler);
-                    }
-                }
-            }
-        }
-
+        /// <summary>Waits for one event, discarding any event data without a timeout.</summary>
+        /// <param name="addHandler">Attaches the supplied handler synchronously before this call returns.</param>
+        /// <param name="removeHandler">Detaches the same handler once, including after failed attachment; must tolerate an absent handler.</param>
+        /// <param name="cancellationToken">Cancels waiting, not the underlying operation. Pre-cancellation prevents subscription.</param>
+        /// <returns>True when the event occurs, after cleanup finishes.</returns>
+        /// <exception cref="ArgumentNullException">An accessor is null.</exception>
+        /// <exception cref="OperationCanceledException">Cancellation wins and cleanup succeeds.</exception>
+        /// <exception cref="AggregateException">Both addition and cleanup fail, with the addition exception first.</exception>
+        /// <remarks>
+        /// The first event/timeout/cancellation signal wins. Addition failure overrides that signal; cleanup failure overrides an ordinary outcome.
+        /// Accessor and context-dispatch errors fault the task, including OperationCanceledException thrown by an accessor.
+        /// Cleanup uses the captured SynchronizationContext when present; keep it alive and await asynchronously.
+        /// Accessors must return promptly. A failed remover or rejected dispatch may leave the handler attached.
+        /// </remarks>
         public static Task<bool> WaitForEventAsync(Action<Action> addHandler, Action<Action> removeHandler, CancellationToken cancellationToken = default)
             => WaitForEventAsync(addHandler, removeHandler, Timeout.InfiniteTimeSpan, cancellationToken);
 
+        /// <summary>Waits for one event, discarding any event data, or a timeout.</summary>
+        /// <param name="addHandler">Attaches the supplied handler synchronously before this call returns.</param>
+        /// <param name="removeHandler">Detaches the same handler once, including after failed attachment; must tolerate an absent handler.</param>
+        /// <param name="timeout">Exactly Timeout.InfiniteTimeSpan, or zero through Int32.MaxValue milliseconds inclusive. Zero does not subscribe.</param>
+        /// <param name="cancellationToken">Cancels waiting, not the underlying operation. Pre-cancellation prevents subscription.</param>
+        /// <returns>True for an event, or false for timeout, after cleanup finishes.</returns>
+        /// <exception cref="ArgumentNullException">An accessor is null.</exception>
+        /// <exception cref="ArgumentOutOfRangeException">The timeout is outside the supported range.</exception>
+        /// <exception cref="OperationCanceledException">Cancellation wins and cleanup succeeds.</exception>
+        /// <exception cref="AggregateException">Both addition and cleanup fail, with the addition exception first.</exception>
+        /// <remarks>
+        /// The first event/timeout/cancellation signal wins. Addition failure overrides that signal; cleanup failure overrides an ordinary outcome.
+        /// Accessor and context-dispatch errors fault the task, including OperationCanceledException thrown by an accessor.
+        /// Cleanup uses the captured SynchronizationContext when present; keep it alive and await asynchronously.
+        /// Accessors must return promptly. A failed remover or rejected dispatch may leave the handler attached.
+        /// </remarks>
+        public static Task<bool> WaitForEventAsync(Action<EventHandler> addHandler, Action<EventHandler> removeHandler, TimeSpan timeout, CancellationToken cancellationToken = default)
+            => EventWait.WaitAsync(addHandler, removeHandler, signal => (sender, args) => signal(true), false, timeout, cancellationToken);
 
-        // —— EventHandler —— //
-
-        public static async Task<bool> WaitForEventAsync(Action<EventHandler> addHandler, Action<EventHandler> removeHandler, TimeSpan timeout, CancellationToken cancellationToken = default)
-        {
-            if (addHandler == null) 
-                throw new ArgumentNullException(nameof(addHandler));
-            
-            if (removeHandler == null) 
-                throw new ArgumentNullException(nameof(removeHandler));
-            
-            if (timeout < Timeout.InfiniteTimeSpan)
-                throw new ArgumentOutOfRangeException(nameof(timeout), "Timeout must be Timeout.InfiniteTimeSpan or a non-negative TimeSpan.");
-
-            cancellationToken.ThrowIfCancellationRequested();
-
-            using (var timeoutCts = new CancellationTokenSource(timeout))
-            {
-                var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-
-                void handler(object s, EventArgs e)
-                {
-                    removeHandler(handler);
-                    tcs.TrySetResult(true);
-                }
-
-                addHandler(handler);
-
-                using (timeoutCts.Token.Register(() =>
-                {
-                    removeHandler(handler);
-                    tcs.TrySetResult(false);
-                }))
-                using (cancellationToken.Register(() =>
-                {
-                    removeHandler(handler);
-                    tcs.TrySetCanceled(cancellationToken);
-                }))
-                {
-                    try
-                    {
-                        return await tcs.Task.ConfigureAwait(false);
-                    }
-                    finally
-                    {
-                        removeHandler(handler);
-                    }
-                }
-            }
-        }
-
+        /// <summary>Waits for one event, discarding any event data without a timeout.</summary>
+        /// <param name="addHandler">Attaches the supplied handler synchronously before this call returns.</param>
+        /// <param name="removeHandler">Detaches the same handler once, including after failed attachment; must tolerate an absent handler.</param>
+        /// <param name="cancellationToken">Cancels waiting, not the underlying operation. Pre-cancellation prevents subscription.</param>
+        /// <returns>True when the event occurs, after cleanup finishes.</returns>
+        /// <exception cref="ArgumentNullException">An accessor is null.</exception>
+        /// <exception cref="OperationCanceledException">Cancellation wins and cleanup succeeds.</exception>
+        /// <exception cref="AggregateException">Both addition and cleanup fail, with the addition exception first.</exception>
+        /// <remarks>
+        /// The first event/timeout/cancellation signal wins. Addition failure overrides that signal; cleanup failure overrides an ordinary outcome.
+        /// Accessor and context-dispatch errors fault the task, including OperationCanceledException thrown by an accessor.
+        /// Cleanup uses the captured SynchronizationContext when present; keep it alive and await asynchronously.
+        /// Accessors must return promptly. A failed remover or rejected dispatch may leave the handler attached.
+        /// </remarks>
         public static Task<bool> WaitForEventAsync(Action<EventHandler> addHandler, Action<EventHandler> removeHandler, CancellationToken cancellationToken = default)
             => WaitForEventAsync(addHandler, removeHandler, Timeout.InfiniteTimeSpan, cancellationToken);
     }
