@@ -16,5 +16,3 @@ On Windows, run `dotnet run --project Examples/EventAwaiterKit.WindowsChecks -c 
 Add regression tests for behavior changes, covering each affected event shape. For concurrency-sensitive cases, coordinate callbacks or use a controlled synchronization context so tests do not depend on arbitrary delays.
 
 Preserve public signatures unless a breaking change is intentional and documented, and update the XML documentation, lifecycle contract, and executable examples when behavior changes. Follow the existing code style and add runtime dependencies only when needed.
-
-Before submitting, run `git diff --check` and explain the problem, resulting behavior, and validation in the pull request. Bug reports should include a minimal reproduction, runtime and OS, event shape, synchronization-context details, and full exception information.
