@@ -17,15 +17,15 @@ dotnet add YourApp.csproj reference path/to/EventAwaiterKit/EventAwaiterKit.cspr
 | `Action<T>` | `Task<EventWaitResult<T>>` |
 | `EventHandler<TEventArgs>` | `Task<EventWaitResult<TEventArgs>>`; sender is discarded |
 
-Every shape has an overload with `TimeSpan timeout` and an overload without a timeout. All accept an optional `CancellationToken`. Specify the type argument for typed event subscriptions, for example `WaitForEventAsync<int>(...)`.
+Each shape has an overload with `TimeSpan timeout` and one without a timeout, both of which accept an optional `CancellationToken`. Specify the type argument when subscribing to a typed event, as in `WaitForEventAsync<int>(...)`.
 
-Untyped waits return `true` for an event and `false` for timeout. Typed results have `Occurred` and `Value`: `Occurred` can be true even when the payload is `null` or `0`. Reading `Value` after timeout throws `InvalidOperationException`. A default-constructed result represents timeout.
+Untyped waits return `true` for an event and `false` for timeout. Typed results use `Occurred` to distinguish a timeout from an event carrying `null`, `0`, or another default value; `Value` throws `InvalidOperationException` after a timeout, including for a default-constructed result.
 
-Cancellation produces a canceled task and throws `OperationCanceledException` when awaited, provided cleanup succeeds. Cancellation stops waiting; it does not stop a sensor, motor, or other underlying operation.
+If cancellation wins and cleanup succeeds, awaiting the canceled task throws `OperationCanceledException`; the sensor, motor, or other operation that produces the event continues unless you stop it separately.
 
 ## Subscribe before starting work
 
-Calling `WaitForEventAsync` subscribes synchronously. Store the task, start the operation, then await. This also handles an operation that raises its completion event before its start method returns.
+`WaitForEventAsync` subscribes synchronously, so store the task before starting the operation and then await it. This ordering captures a completion event even when the operation raises it before its start method returns.
 
 This excerpt is implemented in the [executable examples](Examples/EventAwaiterKit.Examples/Program.cs):
 
@@ -53,7 +53,7 @@ finally
 }
 ```
 
-A cleanup failure remains observable and can supersede an exception from starting the operation in this simple `finally` pattern. If an application needs both failures, collect and report both explicitly.
+In this `finally` pattern, a cleanup failure can supersede an exception from starting the operation. Collect and report both exceptions explicitly if the application needs them.
 
 For an existing non-generic event:
 
@@ -69,32 +69,32 @@ This waits for a future event; it does not replay earlier events or check whethe
 
 ## Racing or abandoning waits
 
-`Task.WhenAny` does not stop the losing waits. Give related waits a cancellation token, cancel it in `finally`, and await `Task.WhenAll` to observe every task and finish cleanup. Suppress cancellation only when that combined task is actually canceled; cleanup failures must remain visible.
+`Task.WhenAny` leaves the other waits running. Give related waits a cancellation token, cancel it in `finally`, and await `Task.WhenAll` so every task is observed and cleanup finishes; suppress cancellation only when the combined task is actually canceled, leaving cleanup failures visible.
 
-The executable examples demonstrate this pattern with two event sources, including checking that both subscriptions were removed. Canceling an abandoned wait matters especially when it has no timeout.
+The executable examples use two event sources and check that both subscriptions were removed. Cancellation is especially important for an abandoned wait without a timeout.
 
 ## Custom delegates and file watching
 
-The API accepts the four delegate shapes above. C# events with other delegate types need an adapter. `FileSystemEventHandler` is a distinct type, even though its signature resembles `EventHandler<FileSystemEventArgs>`.
+The API accepts the four delegate shapes above; events with another delegate type need an adapter. For example, `FileSystemEventHandler` has the same signature as `EventHandler<FileSystemEventArgs>` but is a distinct type.
 
-The [file-watcher example](Examples/EventAwaiterKit.Examples/Program.cs) retains one adapter instance, subscribes to `Created`, enables the watcher, and creates a temporary file. It verifies the returned path, observes cleanup, disposes the watcher, and removes the temporary directory. It uses an actual filesystem event.
+The [file-watcher example](Examples/EventAwaiterKit.Examples/Program.cs) retains one adapter instance while subscribing to `Created`, then enables the watcher and creates a temporary file. It checks the path reported by the filesystem event before disposing the watcher and removing the temporary directory.
 
 ## Cleanup, exceptions, and UI callers
 
-- Event, timeout, and cancellation compete for one outcome. Later signals do nothing.
-- Cleanup waits for the add accessor to return or throw. Removal is attempted once for an attempted subscription, including after a failed add; it must tolerate an absent handler.
-- The returned task completes after cleanup finishes or fails. Accessor exceptions reach that task instead of escaping through completion callbacks.
-- Addition failure overrides an event signal. Cleanup failure overrides event/timeout/cancellation. If both accessors fail, the task faults with an `AggregateException` containing both.
-- Cleanup uses the calling `SynchronizationContext` when present. Call from the source's owning context and keep its message pump running. Use `await`, not `.Wait()` or `.Result` on that thread.
-- A failing remover or unavailable context can prevent detachment. Automatic cleanup cannot guarantee removal when the source refuses it.
+- Event, timeout, and cancellation compete for one outcome; later signals do nothing.
+- Cleanup waits for the add accessor to return or throw. Removal is attempted once for an attempted subscription, including after a failed add, so it must tolerate an absent handler.
+- The returned task completes after cleanup finishes or fails, with accessor exceptions reported through that task rather than completion callbacks.
+- Addition failure overrides an event signal, while cleanup failure overrides event, timeout, or cancellation. If both accessors fail, the task faults with an `AggregateException` containing both.
+- When a `SynchronizationContext` is present, cleanup uses it. Call from the source's owning context, keep its message pump running, and use `await` rather than `.Wait()` or `.Result` on that thread.
+- A failing remover or unavailable context can prevent detachment, so automatic cleanup cannot guarantee removal when the source refuses it.
 
-Timeout accepts exactly `Timeout.InfiniteTimeSpan`, or zero through `Int32.MaxValue` milliseconds. Zero returns timeout without subscribing; an already-canceled token takes precedence over zero. Other negative values are invalid. Accessors cannot be interrupted by a timeout and must return promptly.
+Timeout accepts exactly `Timeout.InfiniteTimeSpan`, or zero through `Int32.MaxValue` milliseconds; other negative values are invalid. Zero returns timeout without subscribing unless the token is already canceled, in which case cancellation wins. Accessors must return promptly because a timeout cannot interrupt them.
 
 Read the full [lifecycle contract](LIFECYCLE.md) for ordering, exception precedence, and context limitations. Public API XML documentation is generated beside the library assembly for editor help.
 
 ### Why supply add/remove operations instead of a delegate?
 
-The helper creates the handler and must attach and detach that exact instance. A delegate alone does not tell it which event accessors to invoke. The two lambdas provide those operations without reflection and work with both ordinary events and custom callback registration APIs.
+The helper creates a handler and needs to attach and detach that exact instance. A delegate alone does not identify the event accessors, so the two lambdas supply those operations for both ordinary events and custom callback registration APIs.
 
 ## Build, tests, and examples
 
@@ -112,7 +112,7 @@ On Windows, also run:
 dotnet run --project Examples/EventAwaiterKit.WindowsChecks -c Release
 ```
 
-The Windows check runs a real WinForms message loop with hidden controls. It verifies cleanup on the UI thread for a background event, timeout, background cancellation, and an actual control event. It does not open a visible window or validate visual UI behavior. The Windows-only project is kept outside the portable solution.
+The Windows check uses hidden controls and a real WinForms message loop to verify UI-thread cleanup after a background event, timeout, background cancellation, or control event. It does not open a visible window or check visual behavior, and its project sits outside the portable solution.
 
 ## Compatibility and scope
 
@@ -122,7 +122,7 @@ The library handles one event per call. Event streams, predicates, sender captur
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for checks and regression-test expectations. Keep behavior, examples, and documentation synchronized.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for checks and regression-test expectations, and keep the examples and documentation aligned with the code.
 
 ## Using and releasing
 
