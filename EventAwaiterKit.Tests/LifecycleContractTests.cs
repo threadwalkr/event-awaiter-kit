@@ -14,6 +14,18 @@ public sealed class LifecycleContractTests
         if (shape == 0)
             return EventAwaiter.WaitForEventAsync(add, remove, timeout ?? Timeout.InfiniteTimeSpan, token);
         Action? invoke = null;
+        if (shape == 2)
+            return AsBoolean(EventAwaiter.WaitForEventAsync<int>((Action<int> h) =>
+            {
+                invoke = () => h(42);
+                add(invoke);
+            }, _ => remove(invoke!), timeout ?? Timeout.InfiniteTimeSpan, token), token);
+        if (shape == 3)
+            return AsBoolean(EventAwaiter.WaitForEventAsync<EventArgs>((EventHandler<EventArgs> h) =>
+            {
+                invoke = () => h(null, EventArgs.Empty);
+                add(invoke);
+            }, _ => remove(invoke!), timeout ?? Timeout.InfiniteTimeSpan, token), token);
         return EventAwaiter.WaitForEventAsync((EventHandler h) =>
         {
             invoke = () => h(null, EventArgs.Empty);
@@ -21,9 +33,24 @@ public sealed class LifecycleContractTests
         }, _ => remove(invoke!), timeout ?? Timeout.InfiniteTimeSpan, token);
     }
 
+    private static Task<bool> AsBoolean<T>(Task<EventWaitResult<T>> task, CancellationToken token)
+    {
+        // Preserve the original task state, including faulted OperationCanceledException accessors.
+        var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _ = task.ContinueWith(done =>
+        {
+            if (done.IsFaulted) completion.SetException(done.Exception!.InnerExceptions);
+            else if (done.IsCanceled) completion.SetCanceled(token);
+            else completion.SetResult(done.Result.Occurred);
+        }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        return completion.Task;
+    }
+
     [TestMethod]
     [DataRow(0)]
+    [DataRow(2)]
     [DataRow(1)]
+    [DataRow(3)]
     public async Task ValidationAndPreCancellationNeverSubscribe(int shape)
     {
         var calls = 0;
@@ -45,7 +72,9 @@ public sealed class LifecycleContractTests
 
     [TestMethod]
     [DataRow(0)]
+    [DataRow(2)]
     [DataRow(1)]
+    [DataRow(3)]
     public async Task SubscriptionAndCleanupUseSameHandlerExactlyOnce(int shape)
     {
         Action? attached = null;
@@ -67,7 +96,9 @@ public sealed class LifecycleContractTests
 
     [TestMethod]
     [DataRow(0)]
+    [DataRow(2)]
     [DataRow(1)]
+    [DataRow(3)]
     public async Task CancellationDuringSubscriptionWaitsForAccessorExit(int shape)
     {
         using var cts = new CancellationTokenSource();
@@ -90,9 +121,13 @@ public sealed class LifecycleContractTests
 
     [TestMethod]
     [DataRow(0, false)]
+    [DataRow(2, false)]
     [DataRow(0, true)]
+    [DataRow(2, true)]
     [DataRow(1, false)]
+    [DataRow(3, false)]
     [DataRow(1, true)]
+    [DataRow(3, true)]
     public async Task SubscriptionFailureAttemptsCleanupAndOverridesEvent(int shape, bool attachFirst)
     {
         Action? attached = null;
@@ -112,7 +147,9 @@ public sealed class LifecycleContractTests
 
     [TestMethod]
     [DataRow(0)]
+    [DataRow(2)]
     [DataRow(1)]
+    [DataRow(3)]
     public async Task CombinedAccessorFailuresPreserveBothExceptions(int shape)
     {
         var addFailure = new InvalidOperationException("add");
@@ -124,11 +161,17 @@ public sealed class LifecycleContractTests
 
     [TestMethod]
     [DataRow(0, 0)]
+    [DataRow(2, 0)]
     [DataRow(0, 1)]
+    [DataRow(2, 1)]
     [DataRow(0, 2)]
+    [DataRow(2, 2)]
     [DataRow(1, 0)]
+    [DataRow(3, 0)]
     [DataRow(1, 1)]
+    [DataRow(3, 1)]
     [DataRow(1, 2)]
+    [DataRow(3, 2)]
     public async Task CleanupFailureOverridesEventTimeoutAndCancellation(int shape, int outcome)
     {
         using var cts = new CancellationTokenSource();
@@ -147,7 +190,9 @@ public sealed class LifecycleContractTests
 
     [TestMethod]
     [DataRow(0)]
+    [DataRow(2)]
     [DataRow(1)]
+    [DataRow(3)]
     public async Task CancellationExceptionFromSubscriptionIsFaulted(int shape)
     {
         var failure = new OperationCanceledException("add");
@@ -158,7 +203,9 @@ public sealed class LifecycleContractTests
 
     [TestMethod]
     [DataRow(0)]
+    [DataRow(2)]
     [DataRow(1)]
+    [DataRow(3)]
     public async Task ReentrantCleanupAndIndependentWaitAreSafe(int shape)
     {
         using var cts = new CancellationTokenSource();
@@ -181,7 +228,9 @@ public sealed class LifecycleContractTests
 
     [TestMethod]
     [DataRow(0)]
+    [DataRow(2)]
     [DataRow(1)]
+    [DataRow(3)]
     public async Task ConcurrentSignalsAndLateCallbacksHaveOneCleanup(int shape)
     {
         for (var iteration = 0; iteration < 100; iteration++)
@@ -206,11 +255,17 @@ public sealed class LifecycleContractTests
 
     [TestMethod]
     [DataRow(0, 0)]
+    [DataRow(2, 0)]
     [DataRow(0, 1)]
+    [DataRow(2, 1)]
     [DataRow(0, 2)]
+    [DataRow(2, 2)]
     [DataRow(1, 0)]
+    [DataRow(3, 0)]
     [DataRow(1, 1)]
+    [DataRow(3, 1)]
     [DataRow(1, 2)]
+    [DataRow(3, 2)]
     public async Task CapturedContextOwnsCleanupAndTaskWaitsForIt(int shape, int outcome)
     {
         using var cts = new CancellationTokenSource();
@@ -243,6 +298,8 @@ public sealed class LifecycleContractTests
     [TestMethod]
     [DataRow(0)]
     [DataRow(1)]
+    [DataRow(2)]
+    [DataRow(3)]
     public async Task SynchronousSignalBeforeAttachmentStillDetachesAfterAdd(int shape)
     {
         Action? attached = null;
@@ -269,6 +326,8 @@ public sealed class LifecycleContractTests
     [TestMethod]
     [DataRow(0)]
     [DataRow(1)]
+    [DataRow(2)]
+    [DataRow(3)]
     public async Task ConsumerContinuationDoesNotRunInsideTheEventCallback(int shape)
     {
         using var insideEvent = new ThreadLocal<bool>();
