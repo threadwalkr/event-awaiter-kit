@@ -116,7 +116,7 @@ The Windows check runs a real WinForms message loop with hidden controls. It ver
 
 ## Compatibility and scope
 
-The library targets .NET Standard 2.0 and has no added runtime dependencies. Tests and executable examples target .NET 10. Validation for this change was performed on Windows with .NET 10, including the WinForms checks. Other compatible runtimes, including .NET Framework, have not been runtime-tested here; target compatibility alone is not a runtime test.
+The library targets .NET Standard 2.0 without adding runtime dependencies, while the tests and executable examples use .NET 10. Windows Forms checks are Windows-specific, and the repository currently does not test against other .NET Standard 2.0 runtimes such as .NET Framework.
 
 The library handles one event per call. Event streams, predicates, sender capture, device control, and automatic marshaling to an unknown source owner are outside its scope.
 
@@ -124,9 +124,11 @@ The library handles one event per call. Event streams, predicates, sender captur
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for checks and regression-test expectations. Keep behavior, examples, and documentation synchronized.
 
-## Roadmap
+## Using and releasing
 
-- [ ] Publish EventAwaiterKit to NuGet
+If you want to use EventAwaiterKit in your app, add a project reference to `EventAwaiterKit/EventAwaiterKit.csproj` or reference the built assembly. The version number is in `EventAwaiterKit/EventAwaiterKit.csproj`.
+
+Before tagging a release, run the checks in [CONTRIBUTING.md](CONTRIBUTING.md), update the version number, and make sure the documentation and examples match the code.
 
 ## License
 
