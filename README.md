@@ -116,7 +116,7 @@ The Windows check runs a real WinForms message loop with hidden controls. It ver
 
 ## Compatibility and scope
 
-The library targets .NET Standard 2.0 and has no added runtime dependencies. The tests and executable examples target .NET 10. The Windows Forms checks require Windows. This repository does not include runtime tests for other .NET Standard 2.0 implementations, such as .NET Framework.
+The library targets .NET Standard 2.0 without adding runtime dependencies, while the tests and executable examples use .NET 10. Windows Forms checks are Windows-specific, and the repository currently does not test against other .NET Standard 2.0 runtimes such as .NET Framework.
 
 The library handles one event per call. Event streams, predicates, sender capture, device control, and automatic marshaling to an unknown source owner are outside its scope.
 
