@@ -296,6 +296,53 @@ public sealed class LifecycleContractTests
     }
 
     [TestMethod]
+    [DataRow(0)]
+    [DataRow(1)]
+    [DataRow(2)]
+    [DataRow(3)]
+    public async Task SynchronousSignalBeforeAttachmentStillDetachesAfterAdd(int shape)
+    {
+        Action? attached = null;
+        var insideAdd = false;
+        var removes = 0;
+        var wait = Wait(shape, h =>
+        {
+            insideAdd = true;
+            h();
+            attached = h;
+            insideAdd = false;
+        }, h =>
+        {
+            Assert.IsFalse(insideAdd);
+            Assert.AreSame(attached, h);
+            attached = null;
+            removes++;
+        });
+        Assert.IsTrue(await wait.WaitAsync(Bound));
+        Assert.IsNull(attached);
+        Assert.AreEqual(1, removes);
+    }
+
+    [TestMethod]
+    [DataRow(0)]
+    [DataRow(1)]
+    [DataRow(2)]
+    [DataRow(3)]
+    public async Task ConsumerContinuationDoesNotRunInsideTheEventCallback(int shape)
+    {
+        using var insideEvent = new ThreadLocal<bool>();
+        Action? callback = null;
+        var wait = Wait(shape, h => callback = h, _ => { });
+        var continuation = wait.ContinueWith(_ => Assert.IsFalse(insideEvent.Value),
+            CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        insideEvent.Value = true;
+        try { callback!(); }
+        finally { insideEvent.Value = false; }
+        await continuation.WaitAsync(Bound);
+        Assert.IsTrue(await wait);
+    }
+
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task FailingDispatchFaultsTaskWithoutWrongContextCleanup(bool enqueueFirst)

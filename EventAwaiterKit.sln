@@ -7,6 +7,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EventAwaiterKit", "EventAwa
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EventAwaiterKit.Tests", "EventAwaiterKit.Tests\EventAwaiterKit.Tests.csproj", "{5E8CB3B1-653C-4D84-98BB-DD8DA943668A}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Examples", "Examples", "{B36A84DF-456D-A817-6EDD-3EC3E7F6E11F}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EventAwaiterKit.Examples", "Examples\EventAwaiterKit.Examples\EventAwaiterKit.Examples.csproj", "{AA1EBC55-205F-4ED2-8703-77CDDC41824C}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -41,9 +45,24 @@ Global
 		{5E8CB3B1-653C-4D84-98BB-DD8DA943668A}.Release|x64.Build.0 = Release|Any CPU
 		{5E8CB3B1-653C-4D84-98BB-DD8DA943668A}.Release|x86.ActiveCfg = Release|Any CPU
 		{5E8CB3B1-653C-4D84-98BB-DD8DA943668A}.Release|x86.Build.0 = Release|Any CPU
+		{AA1EBC55-205F-4ED2-8703-77CDDC41824C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AA1EBC55-205F-4ED2-8703-77CDDC41824C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AA1EBC55-205F-4ED2-8703-77CDDC41824C}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{AA1EBC55-205F-4ED2-8703-77CDDC41824C}.Debug|x64.Build.0 = Debug|Any CPU
+		{AA1EBC55-205F-4ED2-8703-77CDDC41824C}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{AA1EBC55-205F-4ED2-8703-77CDDC41824C}.Debug|x86.Build.0 = Debug|Any CPU
+		{AA1EBC55-205F-4ED2-8703-77CDDC41824C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AA1EBC55-205F-4ED2-8703-77CDDC41824C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{AA1EBC55-205F-4ED2-8703-77CDDC41824C}.Release|x64.ActiveCfg = Release|Any CPU
+		{AA1EBC55-205F-4ED2-8703-77CDDC41824C}.Release|x64.Build.0 = Release|Any CPU
+		{AA1EBC55-205F-4ED2-8703-77CDDC41824C}.Release|x86.ActiveCfg = Release|Any CPU
+		{AA1EBC55-205F-4ED2-8703-77CDDC41824C}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{AA1EBC55-205F-4ED2-8703-77CDDC41824C} = {B36A84DF-456D-A817-6EDD-3EC3E7F6E11F}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {859C757B-E56D-43D2-BE92-25AF0982342E}

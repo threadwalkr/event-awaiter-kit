@@ -31,4 +31,4 @@ Addition runs on the caller. Cleanup uses the caller's captured `Synchronization
 
 Keep the captured context alive and processing work until the wait finishes. Use `await`; blocking the UI with `.Wait()` or `.Result` can deadlock cleanup. A context that accepts a post but never executes it leaves the task pending. A rejecting context faults the wait, and the caller may need to arrange detachment once the context is usable again.
 
-Completion callbacks only signal the wait. Consumer continuations are not deliberately run inline inside those callbacks. Synchronous events raised during addition are supported: removal waits until addition exits. Cleanup can itself raise events or request cancellation without selecting a second outcome.
+Completion callbacks only signal the wait. Consumer continuations are scheduled asynchronously when the wait completes; awaiting an already-completed task can still continue inline. Synchronous events raised during addition are supported: removal waits until addition exits. Cleanup can itself raise events or request cancellation without selecting a second outcome.

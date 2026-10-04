@@ -1,231 +1,133 @@
-# event-awaiter-kit
+# EventAwaiterKit
 
+A small, dependency-free .NET Standard 2.0 library for awaiting one future event, with timeout, cancellation, and cleanup.
 
-A small, zero-dependency .NET Standard 2.0 library for “awaiting” any event or delegate callback pattern, with built-in support for timeouts and cancellation.
+Use it through a project reference:
 
-<!-- Table of Contents -->
-- [Introduction](#introduction)
-- [Examples](#examples)
-- [API Reference](#api-reference)
-- [Roadmap](#roadmap)
+```sh
+dotnet add YourApp.csproj reference path/to/EventAwaiterKit/EventAwaiterKit.csproj
+```
 
+## Supported events
 
-## Introduction
+| Event shape | Result |
+| --- | --- |
+| `Action` | `Task<bool>` |
+| `EventHandler` | `Task<bool>`; sender and arguments are discarded |
+| `Action<T>` | `Task<EventWaitResult<T>>` |
+| `EventHandler<TEventArgs>` | `Task<EventWaitResult<TEventArgs>>`; sender is discarded |
 
-EventAwaiterKit lets you await .NET events and callbacks as Tasks, removing the usual event handling boilerplate. It provides:
+Every shape has an overload with `TimeSpan timeout` and an overload without a timeout. All accept an optional `CancellationToken`. Specify the type argument for typed event subscriptions, for example `WaitForEventAsync<int>(...)`.
 
-- **Timeout Support**: returns `false` if the event doesn’t fire within a specified `TimeSpan`.
-- **Cancellation**: propagates `OperationCanceledException` if the provided `CancellationToken` is canceled.
-- **Memory-safe**: automatically unsubscribes handlers to avoid leaks.
-- **.NET Standard 2.0**: works across .NET Framework, .NET Core, Xamarin, Unity, and more.
+Untyped waits return `true` for an event and `false` for timeout. Typed results have `Occurred` and `Value`: `Occurred` can be true even when the payload is `null` or `0`. Reading `Value` after timeout throws `InvalidOperationException`. A default-constructed result represents timeout.
 
+Cancellation produces a canceled task and throws `OperationCanceledException` when awaited, provided cleanup succeeds. Cancellation stops waiting; it does not stop a sensor, motor, or other underlying operation.
 
-## Examples
+## Subscribe before starting work
 
-### 1. UI Examples (WinForms/WPF)
+Calling `WaitForEventAsync` subscribes synchronously. Store the task, start the operation, then await. This also handles an operation that raises its completion event before its start method returns.
+
+This excerpt is implemented in the [executable examples](Examples/EventAwaiterKit.Examples/Program.cs):
 
 ```csharp
-async Task PromptUserAsync(Button okButton, CancellationToken ct = default)
+using var stopWaiting = new CancellationTokenSource();
+var wait = EventAwaiter.WaitForEventAsync<int>(
+    h => sensor.Measured += h,
+    h => sensor.Measured -= h,
+    TimeSpan.FromSeconds(5),
+    stopWaiting.Token);
+
+try
 {
-    // Enable the button or show your dialog here...
-    okButton.Enabled = true;
-
-    bool clicked = await EventAwaiter.WaitForEventAsync(
-        h => okButton.Click += h,
-        h => okButton.Click -= h,
-        TimeSpan.FromSeconds(10),
-        ct);
-
-    if (clicked)
-        MessageBox.Show("Thanks for clicking!");
-    else
-        MessageBox.Show("Timed out—closing.");
+    sensor.Measure();
+    var result = await wait;
+    if (result.Occurred)
+        Console.WriteLine(result.Value);
+}
+finally
+{
+    // If starting the operation throws, detach the abandoned wait too.
+    stopWaiting.Cancel();
+    try { await wait; }
+    catch (OperationCanceledException) when (wait.IsCanceled) { }
 }
 ```
 
-```csharp
-async Task FadeOutAndCloseAsync(Window window, TimeSpan duration, CancellationToken ct = default)
-{
-    // Build a simple fade‐out animation
-    var storyboard = new Storyboard { Duration = new Duration(duration) };
-    var animation = new DoubleAnimation(1.0, 0.0, duration);
-    Storyboard.SetTarget(animation, window);
-    Storyboard.SetTargetProperty(animation, new PropertyPath("Opacity"));
-    storyboard.Children.Add(animation);
+A cleanup failure remains observable and can supersede an exception from starting the operation in this simple `finally` pattern. If an application needs both failures, collect and report both explicitly.
 
-    // Start the storyboard
-    storyboard.Begin();
-
-    // Await its Completed event or timeout
-    bool finished = await EventAwaiter.WaitForEventAsync(
-        h => storyboard.Completed += h,
-        h => storyboard.Completed -= h,
-        duration,
-        ct);
-
-    if (finished)
-        window.Close();
-}
-```
-### 2. Hardware Examples
+For an existing non-generic event:
 
 ```csharp
-// Assume MySensor.ReadComplete is an event Action
-async Task ReadSensorAsync(MySensor sensor, CancellationToken ct = default)
-{
-    sensor.StartMeasurement();
-
-    bool gotValue = await EventAwaiter.WaitForEventAsync(
-        h => sensor.ReadComplete += h,
-        h => sensor.ReadComplete -= h,
-        TimeSpan.FromSeconds(2),
-        ct);
-
-    if (gotValue)
-        Console.WriteLine($"Sensor value: {sensor.LastValue}");
-    else
-        Console.WriteLine("Sensor read timed out.");
-}
+bool occurred = await EventAwaiter.WaitForEventAsync(
+    h => source.Completed += h,
+    h => source.Completed -= h,
+    TimeSpan.FromSeconds(5),
+    cancellationToken);
 ```
 
-```csharp
-async Task MoveMotorWithLimitSwitchAsync(IMotorController motorController, ILimitSwitch limitSwitch, int steps, TimeSpan timeout, CancellationToken ct = default)
-{
-    // Start the motor movement
-    motorController.StartMove(steps);
+This waits for a future event; it does not replay earlier events or check whether the underlying operation already finished.
 
-    // Prepare two awaitable tasks:
-    // 1) motor completes its move
-    var moveTask = EventAwaiter.WaitForEventAsync(
-        h => motorController.MoveCompleted += h,
-        h => motorController.MoveCompleted -= h,
-        timeout,
-        ct);
+## Racing or abandoning waits
 
-    // 2) limit switch is triggered
-    var limitTask = EventAwaiter.WaitForEventAsync(
-        h => limitSwitch.Triggered += h,
-        h => limitSwitch.Triggered -= h,
-        timeout,
-        ct);
+`Task.WhenAny` does not stop the losing waits. Give related waits a cancellation token, cancel it in `finally`, and await `Task.WhenAll` to observe every task and finish cleanup. Suppress cancellation only when that combined task is actually canceled; cleanup failures must remain visible.
 
-    // Wait for whichever happens first
-    var finished = await Task.WhenAny(moveTask, limitTask);
+The executable examples demonstrate this pattern with two event sources, including checking that both subscriptions were removed. Canceling an abandoned wait matters especially when it has no timeout.
 
-    if (finished == moveTask && moveTask.Result)
-    {
-        Console.WriteLine($"Motor reached target position: {motorController.CurrentPosition}");
-    }
-    else if (finished == limitTask && limitTask.Result)
-    {
-        Console.WriteLine("Limit switch triggered. Stopping motor.");
-        motorController.Stop();
-    }
-    else
-    {
-        Console.WriteLine("Operation timed out. Stopping motor.");
-        motorController.Stop();
-    }
-}
-```
-### 3. Unity Example (Button Click)
+## Custom delegates and file watching
 
-```csharp
-using UnityEngine;
-using UnityEngine.UI;
+The API accepts the four delegate shapes above. C# events with other delegate types need an adapter. `FileSystemEventHandler` is a distinct type, even though its signature resembles `EventHandler<FileSystemEventArgs>`.
 
-public class ClickAwaiter : MonoBehaviour
-{
-    [SerializeField] private Button uiButton;
+The [file-watcher example](Examples/EventAwaiterKit.Examples/Program.cs) retains one adapter instance, subscribes to `Created`, enables the watcher, and creates a temporary file. It verifies the returned path, observes cleanup, disposes the watcher, and removes the temporary directory. It uses an actual filesystem event.
 
-    private async void Start()
-    {
-        bool clicked = await EventAwaiter.WaitForEventAsync(
-            handler => uiButton.onClick.AddListener(handler),
-            handler => uiButton.onClick.RemoveListener(handler),
-            TimeSpan.FromSeconds(5));
+## Cleanup, exceptions, and UI callers
 
-        if (clicked)
-            Debug.Log("Unity UI Button clicked!");
-        else
-            Debug.Log("No click within 5 seconds.");
-    }
-}
+- Event, timeout, and cancellation compete for one outcome. Later signals do nothing.
+- Cleanup waits for the add accessor to return or throw. Removal is attempted once for an attempted subscription, including after a failed add; it must tolerate an absent handler.
+- The returned task completes after cleanup finishes or fails. Accessor exceptions reach that task instead of escaping through completion callbacks.
+- Addition failure overrides an event signal. Cleanup failure overrides event/timeout/cancellation. If both accessors fail, the task faults with an `AggregateException` containing both.
+- Cleanup uses the calling `SynchronizationContext` when present. Call from the source's owning context and keep its message pump running. Use `await`, not `.Wait()` or `.Result` on that thread.
+- A failing remover or unavailable context can prevent detachment. Automatic cleanup cannot guarantee removal when the source refuses it.
+
+Timeout accepts exactly `Timeout.InfiniteTimeSpan`, or zero through `Int32.MaxValue` milliseconds. Zero returns timeout without subscribing; an already-canceled token takes precedence over zero. Other negative values are invalid. Accessors cannot be interrupted by a timeout and must return promptly.
+
+Read the full [lifecycle contract](LIFECYCLE.md) for ordering, exception precedence, and context limitations. Public API XML documentation is generated beside the library assembly for editor help.
+
+### Why supply add/remove operations instead of a delegate?
+
+The helper creates the handler and must attach and detach that exact instance. A delegate alone does not tell it which event accessors to invoke. The two lambdas provide those operations without reflection and work with both ordinary events and custom callback registration APIs.
+
+## Build, tests, and examples
+
+Install the .NET 10 SDK, then run:
+
+```sh
+dotnet build EventAwaiterKit.sln -c Release
+dotnet test EventAwaiterKit.sln -c Release
+dotnet run --project Examples/EventAwaiterKit.Examples -c Release
 ```
 
+On Windows, also run:
 
-### 4. File Watcher Example
-```csharp
-async Task WatchFileChangesAsync(string filePath, CancellationToken ct = default)
-{
-    using var watcher = new FileSystemWatcher(Path.GetDirectoryName(filePath))
-    {
-        Filter = Path.GetFileName(filePath),
-        EnableRaisingEvents = true
-    };
-
-    // Wait up to 30 seconds for the file to change
-    bool changed = await EventAwaiter.WaitForEventAsync<FileSystemEventArgs>(
-        handler => watcher.Changed += handler,
-        handler => watcher.Changed -= handler,
-        TimeSpan.FromSeconds(30),
-        ct);
-
-    if (changed)
-        Console.WriteLine($"{filePath} was modified!");
-    else
-        Console.WriteLine("No changes detected within 30 seconds.");
-}
+```sh
+dotnet run --project Examples/EventAwaiterKit.WindowsChecks -c Release
 ```
 
+The Windows check runs a real WinForms message loop with hidden controls. It verifies cleanup on the UI thread for a background event, timeout, background cancellation, and an actual control event. It does not open a visible window or validate visual UI behavior. The Windows-only project is kept outside the portable solution.
 
-## API Reference
+## Compatibility and scope
 
-### `EventAwaiter`
+The library targets .NET Standard 2.0 and has no added runtime dependencies. Tests and executable examples target .NET 10. Validation for this change was performed on Windows with .NET 10, including the WinForms checks. Other compatible runtimes, including .NET Framework, have not been runtime-tested here; target compatibility alone is not a runtime test.
 
-```csharp
-// Await an Action-style callback (with timeout)
-Task<bool> WaitForEventAsync(
-    Action subscribe,
-    Action unsubscribe,
-    TimeSpan timeout,
-    CancellationToken cancellationToken = default
-);
+The library handles one event per call. Event streams, predicates, sender capture, device control, and automatic marshaling to an unknown source owner are outside its scope.
 
-// Await an Action-style callback (no timeout)
-Task<bool> WaitForEventAsync(
-    Action subscribe,
-    Action unsubscribe,
-    CancellationToken cancellationToken = default
-);
+## Contributing
 
-// Await an EventHandler-style event (with timeout)
-Task<bool> WaitForEventAsync(
-    Action<EventHandler> subscribe,
-    Action<EventHandler> unsubscribe,
-    TimeSpan timeout,
-    CancellationToken cancellationToken = default
-);
+See [CONTRIBUTING.md](CONTRIBUTING.md) for checks and regression-test expectations. Keep behavior, examples, and documentation synchronized.
 
-// Await an EventHandler-style event (no timeout)
-Task<bool> WaitForEventAsync(
-    Action<EventHandler> subscribe,
-    Action<EventHandler> unsubscribe,
-    CancellationToken cancellationToken = default
-);
-```
+## Versions
 
-- Returns true if the event fires (or callback runs) before timeout; otherwise false.
-- On cancellation, throws an OperationCanceledException.
-- Auto-unsubscribes handlers to avoid memory leaks.
+The library keeps its version in the project file. See [RELEASES.md](RELEASES.md) for repository version and release guidance. Package generation is disabled; this repository is intended for project-reference use.
 
+## License
 
-
-## Roadmap
-- [ ] Add unit tests
-- [ ] Add XML doc comments to public API
-- [ ] Add “Contributing” section to the README
-- [ ] Add “License” section to the README
-- [ ] Publish EventAwaiterKit to NuGet
-- [ ] Support `Action<TArg>` overloads (await callbacks that pass a value)
-- [ ] Support `EventHandler<TEventArgs>` overloads (await events carrying event data)
+[MIT](LICENSE).
