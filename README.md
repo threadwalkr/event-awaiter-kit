@@ -124,9 +124,9 @@ The library handles one event per call. Event streams, predicates, sender captur
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for checks and regression-test expectations. Keep behavior, examples, and documentation synchronized.
 
-## Roadmap
+## Versions
 
-- [ ] Publish EventAwaiterKit to NuGet
+The library keeps its version in the project file. See [RELEASES.md](RELEASES.md) for repository version and release guidance. Package generation is disabled; this repository is intended for project-reference use.
 
 ## License
 
